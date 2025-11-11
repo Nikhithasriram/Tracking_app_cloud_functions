@@ -1,0 +1,64 @@
+/**
+ * Import function triggers from their respective submodules:
+ *
+ * const {onCall} = require("firebase-functions/v2/https");
+ * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
+ *
+ * See a full list of supported triggers at https://firebase.google.com/docs/functions
+ */
+
+const {setGlobalOptions} = require("firebase-functions");
+const {onRequest} = require("firebase-functions/https");
+const logger = require("firebase-functions/logger");
+const admin = require("firebase-admin");
+const {onCall} = require("firebase-functions/v2/https");
+// const firebase_tools = require("firebase-tools");
+// For cost control, you can set the maximum number of containers that can be
+// running at the same time. This helps mitigate the impact of unexpected
+// traffic spikes by instead downgrading performance. This limit is a
+// per-function limit. You can override the limit for each function using the
+// `maxInstances` option in the function's options, e.g.
+// `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
+// NOTE: setGlobalOptions does not apply to functions using the v1 API. V1
+// functions should each use functions.runWith({ maxInstances: 10 }) instead.
+// In the v1 API, each function can only serve one request per container, so
+// this will be the maximum concurrent request count.
+setGlobalOptions({maxInstances: 10});
+
+// Create and deploy your first functions
+// https://firebase.google.com/docs/functions/get-started
+exports.helloWorld = onRequest(
+    {region: "asia-south1"},
+    (request, response) => {
+      logger.info("Hello logs!", {structuredData: true});
+      response.send("Hello from Firebase!");
+    });
+admin.initializeApp();
+exports.deleteUserAndData = onCall(
+    {region: "asia-south1"},
+    async (request) => {
+      const uid = request.auth && request.auth.uid;
+      if (!uid) {
+        throw new Error("Unauthenticated User");
+      }
+
+      // const userDocRef = admin.firestore().collection("users").doc(uid);
+      // const path = `users/${uid}`;
+      logger.info(`Strating delete for users: ${uid}`);
+      try {
+        const userDocRef = admin.firestore().collection("users").doc(uid);
+        const collections = await userDocRef.listCollections();
+        for (const collection of collections) {
+          const snapshot = await collection.get();
+          for (const doc of snapshot.docs) {
+            await doc.ref.delete();
+          }
+        }
+        await userDocRef.delete();
+        await admin.auth().deleteUser(uid);
+      } catch (e) {
+        logger.error(`Error deleting user ${uid}`, e);
+        throw new Error("Delete failed");
+      }
+      return {message: "User and data deleted"};
+    });
